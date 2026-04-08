@@ -122,3 +122,9 @@ wandb/
 *.key
 secrets.yaml
 secrets.json
+# pixi environments
+.pixi/*
+
+!.pixi/config.toml
+
+*.pkl

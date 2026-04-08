@@ -36,6 +36,8 @@ from postprocessing.helper import (
 )
 from tqdm import tqdm
 
+import time
+
 # @lint-ignore-every PYTHONPICKLEISBAD
 
 # Preset configs: (num_images, token_multiplier, num_denoising_steps)
@@ -46,6 +48,7 @@ preset_configs = {
     "quality": (16, 4, 50),
     "speed": (4, 2, 10),
     "balance": (16, 4, 25),
+    "custom": (1, 2, 5)
 }
 
 
@@ -168,6 +171,9 @@ def main():
             batch = InferenceDataset.move_batch_to_device(
                 batch, device, dtype=torch.bfloat16
             )
+
+            start_time = time.time()
+
             latents_pred = model.infer_latents(
                 batch,
                 token_shape=token_shape,
@@ -176,6 +182,11 @@ def main():
                 use_shifted_sampling=use_shifted_sampling,
             )
             mesh = vae.infer_mesh_from_latents(latents_pred)[0]
+
+            end_time = time.time()
+
+            print(f"Inference time: {end_time - start_time}")
+
             if args.save_visualization:
                 vis_prd_mesh = mesh.copy()
                 vis_tgt_mesh = trimesh.Trimesh(

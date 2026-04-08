@@ -413,6 +413,20 @@ def jpg_encode(image: np.ndarray) -> bytes:
 # Main Pipeline
 # =============================================================================
 
+import sys
+import os
+
+# input_path = sys.argv[1]
+# foreground_path = sys.argv[2]
+# xyplane_path = sys.argv[3]
+# caption_path = sys.argv[4]
+input_folder = sys.argv[1]
+input_name = os.path.basename(input_folder)
+input_path = os.path.join(input_folder, f"{input_name}.png")
+foreground_path = os.path.join(input_folder, f"foreground.png")
+xyplane_path = os.path.join(input_folder, f"xy_plane.png")
+caption_path = os.path.join(input_folder, f"caption.txt")
+
 def main():
     """
     Main processing pipeline: image -> depth -> point cloud -> ShapeR pickle.
@@ -424,14 +438,15 @@ def main():
     model = DepthAnything3.from_pretrained("depth-anything/DA3NESTED-GIANT-LARGE")
     model = model.to(device=device)
 
-    image_paths = ["example/cup_painting.jpg"]
+    # image_paths = ["example/cup_painting.jpg"]
+    image_paths = [input_path]
     prediction = model.inference(image=image_paths)
 
     target_size = (prediction.depth.shape[-1], prediction.depth.shape[-2])
 
     # ShapeR released checkpoint expects grayscale input
     image = np.array(
-        Image.open("example/cup_painting.jpg")
+        Image.open(input_path)
         .resize(target_size, resample=Image.LANCZOS)
         .convert("L")
     )
@@ -457,13 +472,13 @@ def main():
 
     mask_fg = (
         np.array(
-            Image.open("example/foreground.png").resize(target_size, resample=Image.NEAREST)
+            Image.open(foreground_path).resize(target_size, resample=Image.NEAREST)
         )[None, ...]
         / 255
     )
     mask_xy = (
         np.array(
-            Image.open("example/xy_plane.png").resize(target_size, resample=Image.NEAREST)
+            Image.open(xyplane_path).resize(target_size, resample=Image.NEAREST)
         )[None, ...]
         / 255
     )
@@ -496,7 +511,7 @@ def main():
     # -------------------------------------------------------------------------
     # 5. Align to ground plane and convert to Z-up
     # -------------------------------------------------------------------------
-    caption = Path("example/caption.txt").read_text()
+    caption = Path(caption_path).read_text()
 
     # Align so ground plane becomes horizontal
     points_aligned, T_align = align_to_xy_plane(points_foreground, points_xyplane)
@@ -584,7 +599,9 @@ def main():
         "raw_depth": raw_depth_tensor,
     }
 
-    output_path = "example/cup_painting.pkl"
+    # output_path = "example/cup_painting.pkl"
+    output_path = os.path.join(input_folder, f"{input_name}.pkl")
+
     with open(output_path, "wb") as f:
         pickle.dump(pkl_sample, f)
 
