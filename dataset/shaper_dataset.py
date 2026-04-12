@@ -13,7 +13,8 @@ import torchsparse
 from dataset.image_processor import (
     crop_pad_preselected_views_with_background,
     get_image_data_based_on_strategy,
-    get_image_data_dav3_workaround
+    get_image_data_dav3_workaround,
+    get_image_data_pinhole_multiview,
 )
 from dataset.point_cloud import preprocess_point_cloud
 
@@ -97,7 +98,9 @@ class InferenceDataset(torch.utils.data.Dataset):
             selected_view_int_list = []
             selected_view_uncropped_pil_bimgs_list = []
             image_data_extractor = (
-                get_image_data_dav3_workaround
+                get_image_data_pinhole_multiview
+                if pkl_sample.get('pinhole_multiview', False)
+                else get_image_data_dav3_workaround
                 if pkl_sample.get('experimental_dav3', False)
                 else get_image_data_based_on_strategy
             )

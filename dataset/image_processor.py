@@ -151,6 +151,85 @@ def get_image_data_dav3_workaround(pkl_sample, num_views, scale, is_rgb, strateg
         camera_to_worlds.astype(np.float32),
     )
 
+
+def get_image_data_pinhole_multiview(pkl_sample, num_views, scale, is_rgb, strategy="cluster"):
+    """
+    Multi-view pinhole path for LiveWorldGen / TUM-RGBD data.
+
+    Bypasses fisheye rectification entirely (TUM-RGBD images are already rectilinear).
+    Uses 3x3 K matrices stored under 'camera_params_k3x3', selects up to num_views
+    frames by k-means clustering on camera positions for view diversity.
+    """
+    image_data     = pkl_sample["image_data"]           # list of JPEG bytes
+    mask_data      = pkl_sample["mask_data"]             # list of JPEG bytes
+    cam_K_list     = pkl_sample["camera_params_k3x3"]   # list of (3,3) numpy/tensor
+    cam2world_list = pkl_sample["camera_to_worlds"]      # list of (4,4) tensors
+
+    n_frames = len(image_data)
+
+    # View selection by k-means on camera positions
+    centers = [
+        (c2w[:3, 3].numpy() if hasattr(c2w, "numpy") else c2w[:3, 3])
+        for c2w in cam2world_list
+    ]
+    if len(centers) <= num_views:
+        selected_indices = list(range(n_frames))
+    else:
+        labels = create_k_clusters(centers, num_views)
+        selected_indices = []
+        for cluster_id in range(labels.max() + 1):
+            cluster_members = np.where(labels == cluster_id)[0]
+            selected_indices.append(int(cluster_members[0]))
+        selected_indices = sorted(set(selected_indices))[:num_views]
+
+    rectified_images        = []
+    rectified_point_masks   = []
+    rectified_camera_params = []
+    camera_to_worlds        = []
+
+    for view_i, idx in enumerate(selected_indices):
+        img = np.array(Image.open(io.BytesIO(image_data[idx])).convert("L"))
+        msk = np.array(Image.open(io.BytesIO(mask_data[idx % len(mask_data)])).convert("L"))
+
+        # Build 4x4 intrinsics from 3x3 K
+        K = cam_K_list[idx]
+        if hasattr(K, "numpy"):
+            K = K.numpy()
+        K = K.astype(np.float32)
+        K4 = np.eye(4, dtype=np.float32)
+        K4[:3, :3] = K
+
+        # Point-projection mask from nonzero pixels
+        pts_v, pts_u = np.where(msk > 0)
+        if len(pts_u) == 0:
+            pt_mask = np.zeros((1, 3), dtype=np.int64)
+        else:
+            pt_mask = np.stack([
+                np.full(len(pts_u), view_i, dtype=np.int64),
+                pts_u,
+                pts_v,
+            ], axis=1)
+
+        c2w = cam2world_list[idx]
+        c2w = c2w.numpy() if hasattr(c2w, "numpy") else np.array(c2w)
+
+        rectified_images.append(img)
+        rectified_point_masks.append(pt_mask)
+        rectified_camera_params.append(K4)
+        camera_to_worlds.append(c2w)
+
+    rectified_images        = np.stack(rectified_images)         # (V, H, W)
+    rectified_camera_params = np.stack(rectified_camera_params)  # (V, 4, 4)
+    camera_to_worlds        = np.stack(camera_to_worlds).astype(np.float32)  # (V, 4, 4)
+
+    return (
+        rectified_images,
+        rectified_point_masks,
+        rectified_camera_params,
+        camera_to_worlds,
+    )
+
+
 def convert_to_4x4(camera_params):
     camera_param_4x4 = [np.eye(4) for _ in range(len(camera_params))]
     for i, c in enumerate(camera_params):
