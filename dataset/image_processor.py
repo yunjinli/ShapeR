@@ -107,6 +107,7 @@ def get_image_data_based_on_strategy(
 
 
 def get_image_data_dav3_workaround(pkl_sample, num_views, scale, is_rgb, strategy="cluster"):
+    # print("dav3")
     buffer = io.BytesIO(pkl_sample["image_data"][0])
     decoded_image = Image.open(buffer)
     decoded_image = decoded_image.convert("L")
@@ -160,9 +161,10 @@ def get_image_data_pinhole_multiview(pkl_sample, num_views, scale, is_rgb, strat
     Uses 3x3 K matrices stored under 'camera_params_k3x3', selects up to num_views
     frames by k-means clustering on camera positions for view diversity.
     """
+    print("pinhole")
     image_data     = pkl_sample["image_data"]           # list of JPEG bytes
     mask_data      = pkl_sample["mask_data"]             # list of JPEG bytes
-    cam_K_list     = pkl_sample["camera_params_k3x3"]   # list of (3,3) numpy/tensor
+    cam_K_list     = pkl_sample["camera_params"]   # list of (3,3) numpy/tensor
     cam2world_list = pkl_sample["camera_to_worlds"]      # list of (4,4) tensors
 
     n_frames = len(image_data)
