@@ -65,8 +65,13 @@ def get_image_data_based_on_strategy(
         torch.from_numpy(np.array([x[3] for x in selected_image_data])),
     )
 
+    import matplotlib.pyplot as plt
+
+    plt.imshow(rectified_masks[0])
+    print(rectified_camera_params)
     # rotate if SLAM Aria Gen2 or just RGB
     if pkl_sample.get("is_ariagen2", False):
+        print("rotate")
         # rotate the image ccw
         rectified_masks = [rectified_masks[i] for i in range(len(rectified_masks))]
         for im_idx in range(len(rectified_masks)):
@@ -86,10 +91,13 @@ def get_image_data_based_on_strategy(
         )
         for i in range(len(rectified_point_masks))
     ]
+
+    print(rectified_point_masks)
     # rectified_camera_params = convert_to_4x4(rectified_camera_params)
     camera_to_worlds = np.stack([x[4] for x in selected_image_data], axis=0)
     if pkl_sample.get("is_ariagen2", False):
         # rotate the image ccw
+        print("rotate")
         rectified_images = [rectified_images[i] for i in range(len(rectified_images))]
         for im_idx in range(len(rectified_images)):
             rectified_images[im_idx] = np.rot90(rectified_images[im_idx], 1)
@@ -106,22 +114,35 @@ def get_image_data_based_on_strategy(
     )
 
 
-def get_image_data_dav3_workaround(pkl_sample, num_views, scale, is_rgb, strategy="cluster"):
+def get_image_data_dav3_workaround(
+    pkl_sample, num_views, scale, is_rgb, strategy="cluster"
+):
     # print("dav3")
-    buffer = io.BytesIO(pkl_sample["image_data"][0])
-    decoded_image = Image.open(buffer)
-    decoded_image = decoded_image.convert("L")
-    rectified_images = [decoded_image]
-    buffer = io.BytesIO(pkl_sample["mask_data"][0])
-    decoded_image = Image.open(buffer)
-    decoded_image = decoded_image.convert("L")
-    rectified_masks = [decoded_image]
+
+    ## Process all
+    rectified_images = []
+    rectified_masks = []
+    # rectified_camera_params = []
+
+    for i in range(len(pkl_sample["image_data"])):
+        buffer = io.BytesIO(pkl_sample["image_data"][i])
+        decoded_image = Image.open(buffer)
+        decoded_image = decoded_image.convert("L")
+        rectified_images.append(decoded_image)
+        buffer = io.BytesIO(pkl_sample["mask_data"][i])
+        decoded_image = Image.open(buffer)
+        decoded_image = decoded_image.convert("L")
+        rectified_masks.append(decoded_image)
     rectified_camera_params = convert_to_4x4(pkl_sample["camera_params"])
+
     for im_idx in range(len(rectified_masks)):
         rectified_masks[im_idx] = np.rot90(rectified_masks[im_idx], 1)
     rectified_masks = np.stack(rectified_masks)
+    import matplotlib.pyplot as plt
+
+    plt.imshow(rectified_masks[0])
     rectified_point_masks = [
-        np.where(rectified_masks[i] > 0) for i in range(len(rectified_masks))
+        np.where(rectified_masks[i] > 200) for i in range(len(rectified_masks))
     ]
     rectified_point_masks = [
         np.stack(
@@ -135,8 +156,17 @@ def get_image_data_dav3_workaround(pkl_sample, num_views, scale, is_rgb, strateg
         for i in range(len(rectified_point_masks))
     ]
 
-    camera_to_worlds = np.stack([pkl_sample["camera_to_worlds"][0]], axis=0)
+    camera_to_worlds = np.stack(
+        [
+            pkl_sample["camera_to_worlds"][i]
+            for i in range(len(pkl_sample["camera_to_worlds"]))
+        ],
+        axis=0,
+    )
+    import matplotlib.pyplot as plt
 
+    print(rectified_point_masks)
+    # plt.imshow(rectified_point_masks)
     for im_idx in range(len(rectified_images)):
         rectified_images[im_idx] = np.rot90(rectified_images[im_idx], 1)
         rectified_camera_params[im_idx] = rotate_intrinsics_ccw90(
@@ -153,7 +183,9 @@ def get_image_data_dav3_workaround(pkl_sample, num_views, scale, is_rgb, strateg
     )
 
 
-def get_image_data_pinhole_multiview(pkl_sample, num_views, scale, is_rgb, strategy="cluster"):
+def get_image_data_pinhole_multiview(
+    pkl_sample, num_views, scale, is_rgb, strategy="cluster"
+):
     """
     Multi-view pinhole path for LiveWorldGen / TUM-RGBD data.
 
@@ -162,10 +194,10 @@ def get_image_data_pinhole_multiview(pkl_sample, num_views, scale, is_rgb, strat
     frames by k-means clustering on camera positions for view diversity.
     """
     print("pinhole")
-    image_data     = pkl_sample["image_data"]           # list of JPEG bytes
-    mask_data      = pkl_sample["mask_data"]             # list of JPEG bytes
-    cam_K_list     = pkl_sample["camera_params"]   # list of (3,3) numpy/tensor
-    cam2world_list = pkl_sample["camera_to_worlds"]      # list of (4,4) tensors
+    image_data = pkl_sample["image_data"]  # list of JPEG bytes
+    mask_data = pkl_sample["mask_data"]  # list of JPEG bytes
+    cam_K_list = pkl_sample["camera_params"]  # list of (3,3) numpy/tensor
+    cam2world_list = pkl_sample["camera_to_worlds"]  # list of (4,4) tensors
 
     n_frames = len(image_data)
 
@@ -184,14 +216,16 @@ def get_image_data_pinhole_multiview(pkl_sample, num_views, scale, is_rgb, strat
             selected_indices.append(int(cluster_members[0]))
         selected_indices = sorted(set(selected_indices))[:num_views]
 
-    rectified_images        = []
-    rectified_point_masks   = []
+    rectified_images = []
+    rectified_point_masks = []
     rectified_camera_params = []
-    camera_to_worlds        = []
+    camera_to_worlds = []
 
     for view_i, idx in enumerate(selected_indices):
         img = np.array(Image.open(io.BytesIO(image_data[idx])).convert("L"))
-        msk = np.array(Image.open(io.BytesIO(mask_data[idx % len(mask_data)])).convert("L"))
+        msk = np.array(
+            Image.open(io.BytesIO(mask_data[idx % len(mask_data)])).convert("L")
+        )
 
         # Build 4x4 intrinsics from 3x3 K
         K = cam_K_list[idx]
@@ -206,11 +240,14 @@ def get_image_data_pinhole_multiview(pkl_sample, num_views, scale, is_rgb, strat
         if len(pts_u) == 0:
             pt_mask = np.zeros((1, 3), dtype=np.int64)
         else:
-            pt_mask = np.stack([
-                np.full(len(pts_u), view_i, dtype=np.int64),
-                pts_u,
-                pts_v,
-            ], axis=1)
+            pt_mask = np.stack(
+                [
+                    np.full(len(pts_u), view_i, dtype=np.int64),
+                    pts_u,
+                    pts_v,
+                ],
+                axis=1,
+            )
 
         c2w = cam2world_list[idx]
         c2w = c2w.numpy() if hasattr(c2w, "numpy") else np.array(c2w)
@@ -220,9 +257,9 @@ def get_image_data_pinhole_multiview(pkl_sample, num_views, scale, is_rgb, strat
         rectified_camera_params.append(K4)
         camera_to_worlds.append(c2w)
 
-    rectified_images        = np.stack(rectified_images)         # (V, H, W)
+    rectified_images = np.stack(rectified_images)  # (V, H, W)
     rectified_camera_params = np.stack(rectified_camera_params)  # (V, 4, 4)
-    camera_to_worlds        = np.stack(camera_to_worlds).astype(np.float32)  # (V, 4, 4)
+    camera_to_worlds = np.stack(camera_to_worlds).astype(np.float32)  # (V, 4, 4)
 
     return (
         rectified_images,
@@ -259,6 +296,82 @@ def rotate_extrinsics_ccw90(cam4x4):
     pre_transform[:3, :3] = R_img
     new_cam4x4 = cam4x4 @ pre_transform
     return new_cam4x4
+
+
+def cluster_and_select_images_dav3(pkl_sample, num_views, scale, is_rgb):
+    """Select views by clustering camera positions with k-means, picking best from each cluster."""
+    (
+        visible_points_key,
+        camera_model_key,
+        image_data_key,
+        obj_pt_pred_key,
+        camera_params_key,
+    ) = get_key_names(pkl_sample, is_rgb)
+    visible_points_model_counts = np.array(
+        [
+            (sample_i, x.shape[0])
+            for sample_i, x in enumerate(pkl_sample[visible_points_key])
+        ]
+    )
+    camera_centers = []
+    for i in range(len(pkl_sample[camera_model_key])):
+        camera_to_world = np.linalg.inv(pkl_sample[camera_model_key][i].numpy())
+        camera_to_world[:3, 3] = camera_to_world[:3, 3] * scale
+        camera_centers.append(camera_to_world[:3, 3])
+    kmeans_labels = create_k_clusters(camera_centers, num_views * 2)
+    selected_image_indices = []
+    for i in range(kmeans_labels.max() + 1):
+        argmax = visible_points_model_counts[kmeans_labels == i, 1].argmax()
+        visible_points_idx = visible_points_model_counts[kmeans_labels == i, 0][argmax]
+        selected_image_indices.append(visible_points_idx)
+
+    selected_image_data = []
+
+    for selected_image_index in selected_image_indices:
+        buffer = io.BytesIO(pkl_sample[image_data_key][selected_image_index])
+        decoded_image = Image.open(buffer)
+        if is_rgb:
+            decoded_image = decoded_image.convert("RGB")
+        else:
+            decoded_image = decoded_image.convert("L")
+        image = np.array(decoded_image)
+        uv_fisheye = pkl_sample[obj_pt_pred_key][selected_image_index].numpy()
+        uv_fisheye_mask = plot_dots(
+            uv_fisheye,
+            H=image.shape[0],
+            W=image.shape[1],
+        )
+        camera_to_world = np.linalg.inv(
+            pkl_sample[camera_model_key][selected_image_index].numpy()
+        )
+        camera_to_world[:3, 3] = camera_to_world[:3, 3] * scale
+        selected_image_data.append(
+            (
+                selected_image_index,
+                image,
+                uv_fisheye_mask,
+                np.array(pkl_sample[camera_params_key][selected_image_index]),
+                camera_to_world,
+                get_valid_uv_fisheye(uv_fisheye, image.shape[1], image.shape[0]),
+                # u,
+                # v,
+                # z,
+            )
+        )
+
+    any_valid_image = False
+    for x in selected_image_data:
+        if x[5] > 0:
+            any_valid_image = True
+            break
+
+    if any_valid_image:
+        selected_image_data = [x for x in selected_image_data if x[5] > 0]
+
+    selected_image_data = sorted(selected_image_data, key=lambda x: x[5], reverse=True)
+    selected_image_data = selected_image_data[:num_views]
+
+    return selected_image_data
 
 
 def cluster_and_select_images(pkl_sample, num_views, scale, is_rgb):
@@ -555,6 +668,8 @@ def crop_pad_preselected_views_with_background(
     selected_point_uvs = [
         view_msks_uvs[v_idx][:, 1:] for v_idx in range(len(view_imgs))
     ]
+    print(selected_point_uvs[0])
+    print(selected_point_uvs[0].shape)
 
     selected_view_point_msks = [
         plot_dots(
