@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shaper"
+version = "0.1.0"
+description = "ShapeR: Robust Conditional 3D Shape Generation from Casual Captures"
+dependencies = ["torch", "numpy"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+include = ["shaper*"]
