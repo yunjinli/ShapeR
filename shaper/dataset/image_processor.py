@@ -117,30 +117,53 @@ def get_image_data_based_on_strategy(
 def get_image_data_dav3_workaround(
     pkl_sample, num_views, scale, is_rgb, strategy="cluster"
 ):
-    # print("dav3")
-
-    ## Process all
     rectified_images = []
     rectified_masks = []
-    # rectified_camera_params = []
+    rectified_camera_params = []
+    camera_to_worlds = []
+
+    cam_param_4x4 = convert_to_4x4(pkl_sample["camera_params"])
+    c2w_list = pkl_sample["camera_to_worlds"]
 
     for i in range(len(pkl_sample["image_data"])):
-        buffer = io.BytesIO(pkl_sample["image_data"][i])
-        decoded_image = Image.open(buffer)
-        decoded_image = decoded_image.convert("L")
-        rectified_images.append(decoded_image)
         buffer = io.BytesIO(pkl_sample["mask_data"][i])
-        decoded_image = Image.open(buffer)
-        decoded_image = decoded_image.convert("L")
-        rectified_masks.append(decoded_image)
-    rectified_camera_params = convert_to_4x4(pkl_sample["camera_params"])
+        decoded_mask = Image.open(buffer).convert("L")
 
-    for im_idx in range(len(rectified_masks)):
+        num_pixels = np.array(decoded_mask).shape[0] * np.array(decoded_mask).shape[1]
+        threshold = 0.1
+        if (
+            np.array(np.where(np.array(decoded_mask) > 200)).sum()
+            < threshold * num_pixels
+        ):
+            print(
+                f"skip image with too few visible points. Object occupy only {np.array(np.where(np.array(decoded_mask) > 200)).sum()} / {num_pixels} pixels. Less than {threshold * 100}% threshold ({threshold * num_pixels} pixels)."
+            )
+            continue
+
+        rectified_masks.append(decoded_mask)
+
+        buffer = io.BytesIO(pkl_sample["image_data"][i])
+        decoded_image = Image.open(buffer).convert("L")
+        rectified_images.append(decoded_image)
+
+        rectified_camera_params.append(cam_param_4x4[i])
+
+        c2w = c2w_list[i]
+        camera_to_worlds.append(c2w.numpy() if hasattr(c2w, "numpy") else np.array(c2w))
+
+    for im_idx in range(len(rectified_images)):
+        rectified_images[im_idx] = np.rot90(rectified_images[im_idx], 1)
         rectified_masks[im_idx] = np.rot90(rectified_masks[im_idx], 1)
-    rectified_masks = np.stack(rectified_masks)
-    import matplotlib.pyplot as plt
+        rectified_camera_params[im_idx] = rotate_intrinsics_ccw90(
+            rectified_camera_params[im_idx], rectified_images[im_idx].shape[0]
+        )
+        camera_to_worlds[im_idx] = rotate_extrinsics_ccw90(camera_to_worlds[im_idx])
 
-    plt.imshow(rectified_masks[0])
+    rectified_masks = np.stack(rectified_masks)
+    rectified_images = np.stack(rectified_images)
+    rectified_camera_params = np.stack(rectified_camera_params)
+    camera_to_worlds = np.stack(camera_to_worlds, axis=0)
+
     rectified_point_masks = [
         np.where(rectified_masks[i] > 200) for i in range(len(rectified_masks))
     ]
@@ -155,25 +178,6 @@ def get_image_data_dav3_workaround(
         )
         for i in range(len(rectified_point_masks))
     ]
-
-    camera_to_worlds = np.stack(
-        [
-            pkl_sample["camera_to_worlds"][i]
-            for i in range(len(pkl_sample["camera_to_worlds"]))
-        ],
-        axis=0,
-    )
-    import matplotlib.pyplot as plt
-
-    print(rectified_point_masks)
-    # plt.imshow(rectified_point_masks)
-    for im_idx in range(len(rectified_images)):
-        rectified_images[im_idx] = np.rot90(rectified_images[im_idx], 1)
-        rectified_camera_params[im_idx] = rotate_intrinsics_ccw90(
-            rectified_camera_params[im_idx], rectified_images[im_idx].shape[0]
-        )
-        camera_to_worlds[im_idx] = rotate_extrinsics_ccw90(camera_to_worlds[im_idx])
-    rectified_images = np.stack(rectified_images)
 
     return (
         rectified_images,
