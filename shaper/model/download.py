@@ -7,13 +7,13 @@ from pathlib import Path
 from huggingface_hub import snapshot_download
 
 
-def setup_checkpoints():
-    Path("checkpoints").mkdir(exist_ok=True)
+def setup_checkpoints(path="checkpoints"):
+    Path(path).mkdir(exist_ok=True)
     try:
         snapshot_download(
             repo_id="facebook/ShapeR",
             allow_patterns=["*.ckpt", "*.yaml", "*.pth"],
-            local_dir="./checkpoints",
+            local_dir=path,
         )
     except Exception as e:
         print(f"Error downloading checkpoints: {e}")

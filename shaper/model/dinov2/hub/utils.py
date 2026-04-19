@@ -11,9 +11,9 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import os
 
-
-_DINOV2_BASE_URL = "checkpoints"
+_DINOV2_BASE_URL = os.environ.get("SHAPER_CHECKPOINT_DIR", "checkpoints")
 
 
 def _make_dinov2_model_name(
